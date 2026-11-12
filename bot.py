@@ -18,34 +18,30 @@ def send_telegram_message(text):
     except Exception as e:
         print(f"Ошибка соединения с Telegram: {e}")
 
-def get_bybit_kline(symbol="BTCUSDT", interval="15", limit=50):
-    """Запрос бесплатных публичных свечей с биржи Bybit"""
-    url = "https://api.bybit.com/v5/market/kline"
+def get_binance_kline(symbol="BTCUSDT", interval="15m", limit=20):
+    """Запрос бесплатных публичных свечей с Binance (отлично работает на GitHub)"""
+    url = "https://api.binance.com/api/v3/klines"
     params = {
-        "category": "linear",
         "symbol": symbol,
         "interval": interval,
         "limit": limit
     }
     try:
-        response = requests.get(url, params=params)
-        data = response.json()
-        if data["retCode"] == 0:
-            return data["result"]["list"]
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
     except Exception as e:
-        print(f"Ошибка запроса к Bybit: {e}")
+        print(f"Ошибка запроса к Binance: {e}")
     return None
 
 def analyze_market():
     symbol = "BTCUSDT"
-    klines = get_bybit_kline(symbol, interval="15", limit=20)
+    klines = get_binance_kline(symbol, interval="15m", limit=20)
     
     if not klines:
-        return "⚠️ Не удалось получить данные с Bybit."
+        return "⚠️ Не удалось получить данные с биржи."
 
-    # Переворачиваем список в хронологический порядок
-    klines.reverse()
-    
+    # Binance возвращает цены закрытия на индексе 4
     closes = [float(k[4]) for k in klines]
     current_price = closes[-1]
     prev_price = closes[-2]
@@ -62,7 +58,7 @@ def analyze_market():
         return None
 
     message = (
-        f"{signal_type} [Bybit Futures]\n"
+        f"{signal_type} [Binance Futures / Spot]\n"
         f"Asset: `{symbol}`\n"
         f"Timeframe: `15m`\n"
         f"-----------------------------------\n"
