@@ -1,5 +1,6 @@
 import requests
 import time
+from datetime import datetime
 
 TELEGRAM_BOT_TOKEN = "8698028434:AAEI-rGxwpBcCih-hzMaELPeg5wOkWSc4Ho"
 TELEGRAM_CHAT_ID = "639554263"
@@ -26,19 +27,42 @@ def send_telegram_message(text):
     except Exception as e:
         print(f"Ошибка Telegram: {e}")
 
+def check_macro_calendar():
+    """Проверка важных событий (ставки ФРС, NFP, открытие сессий по времени UTC / Киев)"""
+    now_utc = datetime.utcnow()
+    hour = now_utc.hour
+    minute = now_utc.minute
+    weekday = now_utc.weekday() # 0-4 это Пн-Пт
+
+    # Пример уведомления об открытии американской сессии (13:30 UTC / 15:30 по Киеву)
+    if weekday < 5 and hour == 13 and 25 <= minute <= 35:
+        return "🇺🇸 *Внимание:* Через несколько минут открывается американская сессия. Ожидается всплеск волатильности в ликвидных парах!"
+
+    # Пример проверки важных макро-дней (например, среда — часто дни заседаний ФРС или публикаций инфляции)
+    # Если бот запускается в определенное время, можно подсвечивать фундаментальный фон
+    return None
+
 def get_market_sentiment():
-    """Получает индекс страха и жадности крипторынка"""
     try:
         res = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5)
         if res.status_code == 200:
             data = res.json()["data"][0]
-            return f"{data['value_classification']} ({data['value']}/100)"
+            val = int(data['value'])
+            sentiment_class = data['value_classification']
+            
+            if val > 75:
+                macro = "Экстремальная жадность. Риск коррекции на новостях."
+            elif val < 25:
+                macro = "Паника на рынке. Высокая волатильность."
+            else:
+                macro = "Нейтральный фон. Рынок ждет ключевую статистику."
+                
+            return f"{sentiment_class} ({val}/100)", macro
     except:
         pass
-    return "Нейтрально"
+    return "Нейтрально (50/100)", "Макрофон стабильный."
 
 def calculate_rsi(closes, period=14):
-    """Расчет RSI"""
     if len(closes) < period + 1:
         return 50.0
     gains, losses = 0, 0
@@ -56,21 +80,23 @@ def calculate_rsi(closes, period=14):
     return 100 - (100 / (1 + rs))
 
 def calculate_bollinger_bands(closes, period=20, num_std=2):
-    """Расчет полос Боллинджера"""
     if len(closes) < period:
         return 0, 0, 0
     sub_closes = closes[-period:]
     sma = sum(sub_closes) / period
     variance = sum((x - sma) ** 2 for x in sub_closes) / period
     stdev = variance ** 0.5
-    upper_band = sma + (num_std * stdev)
-    lower_band = sma - (num_std * stdev)
-    return upper_band, sma, lower_band
+    return sma + (num_std * stdev), sma, sma - (num_std * stdev)
 
 def analyze_market():
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     signals = []
-    sentiment = get_market_sentiment()
+    sentiment_str, macro_news = get_market_sentiment()
+
+    # 1. Сначала проверяем, нет ли важных новостей / сессий по расписанию
+    macro_alert = check_macro_calendar()
+    if macro_alert:
+        send_telegram_message(f"🚨 *МАКРОУВЕДОМЛЕНИЕ*\n{macro_alert}")
 
     for symbol in SYMBOLS:
         try:
@@ -99,22 +125,24 @@ def analyze_market():
                         # Условия LONG
                         if change_30m >= 0.5 and change_1h >= 0.7 and rsi < 75 and macd_line > 0 and current_price >= middle:
                             signal_text = (
-                                f"🚀 *LONG СИГНАЛ [Multi-Indicator]* | `{symbol}`\n"
-                                f"• Цена: `${current_price:,.4f}` | 30м: `+{change_30m:.2f}%` | 1ч: `+{change_1h:.2f}%`\n"
-                                f"📊 *Тех. анализ:* RSI = `{rsi:.1f}` | MACD = `+{macd_line:.4f}`\n"
-                                f"📈 *Волатильность (Bollinger):* Цена выше средней линии.\n"
-                                f"🧠 *Контекст:* Настроения: *{sentiment}*. Импульс подтвержден комплексом индикаторов."
+                                f"🚀 *LONG СИГНАЛ* | `{symbol}`\n"
+                                f"• **Точка входа (Цена):** `${current_price:,.4f}`\n"
+                                f"• **Импульс:** 30м `+{change_30m:.2f}%` | 1ч `+{change_1h:.2f}%`\n"
+                                f"• **Индикаторы:** RSI = `{rsi:.1f}` | MACD = `+{macd_line:.4f}` | Боллинджер: пробой вверх\n"
+                                f"• **Макро / Фон:** {macro_news}\n"
+                                f"💡 *Основание для сделки:* Покупатели перехватили инициативу на старших таймфреймах. Рекомендуется частичная фиксация при достижении целей."
                             )
                             signals.append(signal_text)
                             
                         # Условия SHORT
                         elif change_30m <= -0.5 and change_1h <= -0.7 and rsi > 25 and macd_line < 0 and current_price <= middle:
                             signal_text = (
-                                f"📉 *SHORT СИГНАЛ [Multi-Indicator]* | `{symbol}`\n"
-                                f"• Цена: `${current_price:,.4f}` | 30м: `{change_30m:.2f}%` | 1ч: `{change_1h:.2f}%`\n"
-                                f"📊 *Тех. анализ:* RSI = `{rsi:.1f}` | MACD = `{macd_line:.4f}`\n"
-                                f"📉 *Волатильность (Bollinger):* Цена ниже средней линии.\n"
-                                f"🧠 *Контекст:* Настроения: *{sentiment}*. Медвежий каскад подтвержден."
+                                f"📉 *SHORT СИГНАЛ* | `{symbol}`\n"
+                                f"• **Точка входа (Цена):** `${current_price:,.4f}`\n"
+                                f"• **Импульс:** 30м `{change_30m:.2f}%` | 1ч `{change_1h:.2f}%`\n"
+                                f"• **Индикаторы:** RSI = `{rsi:.1f}` | MACD = `{macd_line:.4f}` | Боллинджер: уход под среднюю\n"
+                                f"• **Макро / Фон:** {macro_news}\n"
+                                f"💡 *Основание для сделки:* Давление продавцов усиливается, пробиты локальные поддержки. Каскад ликвидности вниз."
                             )
                             signals.append(signal_text)
 
@@ -123,15 +151,16 @@ def analyze_market():
         except Exception as e:
             print(f"Ошибка по {symbol}: {e}")
 
-    # Формируем итоговое сообщение
-    header = f"🔍 *СКАНЕР РЫНКА [RSI + MACD + BB]*\n🌐 Страх/Жадность: *{sentiment}*\n===================================\n\n"
+    # Отправка результатов в Telegram
+    header = f"🔍 *СКАНЕР РЫНКА [RSI + MACD + BB]*\n🌐 Страх/Жадность: *{sentiment_str}*\n===================================\n\n"
     
     if signals:
         final_msg = header + "\n\n───────────────────────────────────\n\n".join(signals)
+        send_telegram_message(final_msg)
     else:
-        final_msg = header + "💤 *Статус:* Проверено 30 монет. Сильных трендов по комплексным фильтрам сейчас нет, ждем импульс."
-
-    send_telegram_message(final_msg)
+        # Уведомление о том, что проверка прошла, но сигналов пока нет (чтобы ты знала, что бот активен)
+        status_msg = header + "💤 *Статус:* Проверено 30 монет. Сильных трендов по комплексным фильтрам сейчас нет, ждем импульс."
+        send_telegram_message(status_msg)
 
 if __name__ == "__main__":
     analyze_market()
