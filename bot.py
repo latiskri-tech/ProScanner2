@@ -56,7 +56,7 @@ def calculate_rsi(closes, period=14):
     return 100 - (100 / (1 + rs))
 
 def calculate_bollinger_bands(closes, period=20, num_std=2):
-    """Расчет полос Боллинджера для оценки волатильности и прорыва"""
+    """Расчет полос Боллинджера"""
     if len(closes) < period:
         return 0, 0, 0
     sub_closes = closes[-period:]
@@ -75,7 +75,6 @@ def analyze_market():
     for symbol in SYMBOLS:
         try:
             url = "https://api.bybit.com/v5/market/kline"
-            # Запрашиваем 50 свечей 30-минутного таймфрейма
             res = requests.get(url, params={"category": "linear", "symbol": symbol, "interval": "30", "limit": 50}, headers=headers, timeout=5)
             
             if res.status_code == 200:
@@ -89,7 +88,6 @@ def analyze_market():
                         change_30m = ((closes[-1] - closes[-2]) / closes[-2]) * 100
                         change_1h = ((closes[-1] - closes[-3]) / closes[-3]) * 100
                         
-                        # Индикаторы
                         rsi = calculate_rsi(closes, 14)
                         
                         ema12 = sum(closes[-12:]) / 12
@@ -98,25 +96,25 @@ def analyze_market():
                         
                         upper, middle, lower = calculate_bollinger_bands(closes, 20, 2)
 
-                        # Условия для LONG с учетом прорыва верхней полосы Боллинджера и тренда
+                        # Условия LONG
                         if change_30m >= 0.5 and change_1h >= 0.7 and rsi < 75 and macd_line > 0 and current_price >= middle:
                             signal_text = (
                                 f"🚀 *LONG СИГНАЛ [Multi-Indicator]* | `{symbol}`\n"
                                 f"• Цена: `${current_price:,.4f}` | 30м: `+{change_30m:.2f}%` | 1ч: `+{change_1h:.2f}%`\n"
                                 f"📊 *Тех. анализ:* RSI = `{rsi:.1f}` | MACD = `+{macd_line:.4f}`\n"
-                                f"📈 *Волатильность (Bollinger):* Цена выше средней линии, пробивает локальный диапазон вверх.\n"
-                                f"🧠 *Контекст:* Настроения: *{sentiment}*. Импульс подтвержден комплексом индикаторов, покупатели давят."
+                                f"📈 *Волатильность (Bollinger):* Цена выше средней линии.\n"
+                                f"🧠 *Контекст:* Настроения: *{sentiment}*. Импульс подтвержден комплексом индикаторов."
                             )
                             signals.append(signal_text)
                             
-                        # Условия для SHORT с учетом прорыва нижней полосы Боллинджера
+                        # Условия SHORT
                         elif change_30m <= -0.5 and change_1h <= -0.7 and rsi > 25 and macd_line < 0 and current_price <= middle:
                             signal_text = (
                                 f"📉 *SHORT СИГНАЛ [Multi-Indicator]* | `{symbol}`\n"
                                 f"• Цена: `${current_price:,.4f}` | 30м: `{change_30m:.2f}%` | 1ч: `{change_1h:.2f}%`\n"
                                 f"📊 *Тех. анализ:* RSI = `{rsi:.1f}` | MACD = `{macd_line:.4f}`\n"
-                                f"📉 *Волатильность (Bollinger):* Цена закрепилась ниже средней линии, давление на продажу.\n"
-                                f"🧠 *Контекст:* Настроения: *{sentiment}*. Медвежий каскад подтвержден техническими метриками."
+                                f"📉 *Волатильность (Bollinger):* Цена ниже средней линии.\n"
+                                f"🧠 *Контекст:* Настроения: *{sentiment}*. Медвежий каскад подтвержден."
                             )
                             signals.append(signal_text)
 
@@ -125,13 +123,15 @@ def analyze_market():
         except Exception as e:
             print(f"Ошибка по {symbol}: {e}")
 
-    # Отправка в Telegram
+    # Формируем итоговое сообщение
+    header = f"🔍 *СКАНЕР РЫНКА [RSI + MACD + BB]*\n🌐 Страх/Жадность: *{sentiment}*\n===================================\n\n"
+    
     if signals:
-        header = f"🔥 *КРИПТО СКАНЕР [RSI + MACD + Bollinger]*\n🌐 Страх/Жадность: *{sentiment}*\n===================================\n\n"
         final_msg = header + "\n\n───────────────────────────────────\n\n".join(signals)
-        send_telegram_message(final_msg)
     else:
-        print("За данный цикл сигналов по комплексному фильтру не обнаружено.")
+        final_msg = header + "💤 *Статус:* Проверено 30 монет. Сильных трендов по комплексным фильтрам сейчас нет, ждем импульс."
+
+    send_telegram_message(final_msg)
 
 if __name__ == "__main__":
     analyze_market()
