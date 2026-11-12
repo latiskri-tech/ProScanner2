@@ -11,41 +11,55 @@ def send_telegram_message(text):
         "parse_mode": "Markdown"
     }
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=10)
         if response.status_code != 200:
             print(f"Ошибка отправки в Telegram: {response.text}")
     except Exception as e:
         print(f"Ошибка соединения с Telegram: {e}")
 
-def get_coincap_price():
-    """Получает текущую цену BTC через публичное API CoinCap (без блокировок)"""
-    url = "https://api.coincap.io/v2/assets/bitcoin"
+def get_market_price():
+    """Запрос цены через Bybit API с заголовками браузера (чтобы GitHub не блокировали)"""
+    url = "https://api.bybit.com/v5/market/tickers"
+    params = {"category": "linear", "symbol": "BTCUSDT"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            return float(data["data"]["priceUsd"])
+            if data["retCode"] == 0:
+                price = float(data["result"]["list"][0]["lastPrice"])
+                return price
     except Exception as e:
-        print(f"Ошибка запроса к CoinCap: {e}")
+        print(f"Ошибка Bybit: {e}")
+
+    # Запасной вариант через MEXC API, если Bybit ответит ошибкой
+    try:
+        mexc_url = "https://contract.mexc.com/api/v1/contract/ticker?symbol=BTC_USDT"
+        response = requests.get(mexc_url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return float(data["data"]["lastPrice"])
+    except Exception as e:
+        print(f"Ошибка MEXC: {e}")
+
     return None
 
 def analyze_market():
-    # Для демонстрации берем текущую цену. Поскольку проверка каждые 15 минут, 
-    # в реальном боте можно сохранять историю или проверять изменение.
-    current_price = get_coincap_price()
+    price = get_market_price()
     
-    if not current_price:
-        return "⚠️ Не удалось получить данные о цене."
+    if not price:
+        return "⚠️ Не удалось получить данные с биржи."
 
     message = (
-        f"🚀 **Market Status Update** [CoinCap]\n"
+        f"🟢 **Crypto Bot Active**\n"
         f"Asset: `BTC/USDT`\n"
-        f"Timeframe: `15m check`\n"
         f"-----------------------------------\n"
-        f"• Current Price: `${current_price:,.2f}`\n"
-        f"• Status: Бот успешно запущен и мониторит рынок\n"
+        f"• Current Price: `${price:,.2f}`\n"
+        f"• Status: Мониторинг запущен, данные получены успешно!\n"
         f"-----------------------------------\n"
-        f"⚙️ Автоматический запуск GitHub Actions"
+        f"⚙️ GitHub Actions Cron (15m)"
     )
     return message
 
